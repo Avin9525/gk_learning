@@ -16,6 +16,13 @@ type CardType = {
   selected: boolean;
 };
 
+// Option type
+interface OptionType {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+}
+
 export default function MemoryGamePage() {
   const [topics, setTopics] = useState<{ id: string; name: string }[]>([]);
   const [selectedTopic, setSelectedTopic] = useState('');
@@ -169,7 +176,7 @@ export default function MemoryGamePage() {
           ? JSON.parse(question.options) 
           : question.options;
         
-        const correctAnswer = options.find((opt: any) => opt.isCorrect);
+        const correctAnswer = options.find((opt: OptionType) => opt.isCorrect);
         
         // Add answer card
         gamePairs.push({
