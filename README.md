@@ -1,36 +1,101 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GK Master - Spaced Repetition Learning App
+
+A General Knowledge learning application with spaced repetition to help you remember what you learn. Built with Next.js and Appwrite.
+
+## Features
+
+- **Topic-based Learning**: Questions organized by subject area
+- **Spaced Repetition System**: Smart algorithm to optimize review frequency
+- **Progress Tracking**: Track mastery levels for each question
+- **User Authentication**: Secure login and registration
+- **Responsive Design**: Works on desktop, tablet, and mobile
+
+## Tech Stack
+
+- **Frontend**: Next.js, React, TypeScript, Tailwind CSS
+- **Backend**: Appwrite (Authentication, Database)
+- **State Management**: React Hooks
+- **Forms**: React Hook Form
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js 18+ and npm
+- Appwrite account
+
+### Installation
+
+1. Clone the repository
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/your-username/gk-master.git
+cd gk-master
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Set up your Appwrite account and create:
+   - A new project
+   - A database
+   - Collections for questions and user progress
+   - Authentication with email/password enabled
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Update the `.env` file with your Appwrite credentials:
+```
+NEXT_PUBLIC_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
+NEXT_PUBLIC_APPWRITE_PROJECT_ID=your-project-id
+NEXT_PUBLIC_APPWRITE_DATABASE_ID=your-database-id
+NEXT_PUBLIC_APPWRITE_QUESTION_COLLECTION_ID=your-question-collection-id
+NEXT_PUBLIC_APPWRITE_USER_PROGRESS_COLLECTION_ID=your-user-progress-collection-id
+```
 
-## Learn More
+5. Run the development server
+```bash
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `src/app`: Next.js routes and pages
+- `src/components`: Reusable UI components
+- `src/lib`: Configuration and utilities
+- `src/services`: API service integrations
+- `src/types`: TypeScript type definitions
 
-## Deploy on Vercel
+## Appwrite Setup
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Collections & Attributes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+#### Questions Collection
+- `topic` (string, required) - The topic category of the question
+- `text` (string, required) - The question text
+- `options` (string, required) - JSON string of options array
+- `difficulty` (enum, required) - Question difficulty (easy, medium, hard)
+- `explanation` (string) - Optional explanation for the answer
+
+#### User Progress Collection
+- `userId` (string, required) - The user's ID
+- `questionId` (string, required) - The question's ID
+- `correct` (boolean, required) - Whether the last attempt was correct
+- `lastAttempted` (datetime, required) - When the question was last attempted
+- `attemptsCount` (integer, required) - Number of attempts
+- `consecutiveCorrect` (integer, required) - Number of consecutive correct answers
+- `masteryLevel` (string, required) - Current mastery level (new, learning, review, mastered)
+
+### Indexes
+For the User Progress collection:
+- Create an index for `userId` and `questionId` combined
+- Create another index for `userId` and `masteryLevel`
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
