@@ -14,6 +14,13 @@ interface ParsedQuestion {
   originalNumber?: string;
 }
 
+interface ParsingConfig {
+  questionPrefixes: string[];
+  optionPrefixes: string[];
+  correctAnswerMarkers: string[];
+  explanationPrefixes: string[];
+}
+
 export default function BulkAddQuestionsPage() {
   const router = useRouter();
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -26,6 +33,20 @@ export default function BulkAddQuestionsPage() {
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
   const [previewMode, setPreviewMode] = useState(false);
+  
+  // Parsing configuration
+  const [parsingConfig, setParsingConfig] = useState<ParsingConfig>({
+    questionPrefixes: ['Q:', 'Question:', '\\d+\\.', '\\d+\\)', '\\d+\\s'],
+    optionPrefixes: ['[A-Za-z]\\)', '\\([A-Za-z]\\)', '[A-Za-z]\\]', '[A-Za-z]\\s?[-.]'],
+    correctAnswerMarkers: ['(correct)', '✓', '\\*', '(right)', '(true)'],
+    explanationPrefixes: ['Explanation:', 'Exp:']
+  });
+  
+  const [showParsingOptions, setShowParsingOptions] = useState(false);
+  const [customQuestionPrefix, setCustomQuestionPrefix] = useState('');
+  const [customOptionPrefix, setCustomOptionPrefix] = useState('');
+  const [customCorrectMarker, setCustomCorrectMarker] = useState('');
+  const [customExplanationPrefix, setCustomExplanationPrefix] = useState('');
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -45,120 +66,264 @@ export default function BulkAddQuestionsPage() {
     loadTopics();
   }, [router]);
 
+  const addCustomParsingOption = (type: keyof ParsingConfig) => {
+    const updatedConfig = { ...parsingConfig };
+    
+    if (type === 'questionPrefixes' && customQuestionPrefix) {
+      updatedConfig.questionPrefixes = [...updatedConfig.questionPrefixes, customQuestionPrefix];
+      setCustomQuestionPrefix('');
+    } else if (type === 'optionPrefixes' && customOptionPrefix) {
+      updatedConfig.optionPrefixes = [...updatedConfig.optionPrefixes, customOptionPrefix];
+      setCustomOptionPrefix('');
+    } else if (type === 'correctAnswerMarkers' && customCorrectMarker) {
+      updatedConfig.correctAnswerMarkers = [...updatedConfig.correctAnswerMarkers, customCorrectMarker];
+      setCustomCorrectMarker('');
+    } else if (type === 'explanationPrefixes' && customExplanationPrefix) {
+      updatedConfig.explanationPrefixes = [...updatedConfig.explanationPrefixes, customExplanationPrefix];
+      setCustomExplanationPrefix('');
+    }
+    
+    setParsingConfig(updatedConfig);
+  };
+  
+  const removeParsingOption = (type: keyof ParsingConfig, index: number) => {
+    const updatedConfig = { ...parsingConfig };
+    updatedConfig[type] = updatedConfig[type].filter((_, i) => i !== index);
+    setParsingConfig(updatedConfig);
+  };
+
   const parseQuestions = (text: string): ParsedQuestion[] => {
-    // Split text by numbered pattern (multi-digit numbers allowed) or Q: or Question:
-    const questionBlocks = text.split(/(?:\d+\s*[\.\):]|Q:|Question:)/).filter(block => block.trim());
-console.log(text,questionBlocks);
-    return questionBlocks.map((block, blockIndex) => {
-      const lines = block.split('\n').map(line => line.trim()).filter(line => line);
-      let questionText = '';
-      let originalNumber = '';
-      let options: { id: string; text: string; isCorrect: boolean }[] = [];
-      let explanation = '';
-      let currentSection: 'question' | 'options' | 'explanation' = 'question';
-      let hasCorrectAnswer = false;
-
-
-      // If the first line contains a question pattern, process it
-      if (lines.length > 0) {
-        const firstLine = lines[0];
-        const questionMatch = firstLine.match(/^(\d+[\.\):]|Q:|Question:)/);
+    // Create the dynamic regex patterns from the configuration
+    const questionPrefixPattern = parsingConfig.questionPrefixes.join('|');
+    const optionPrefixPattern = parsingConfig.optionPrefixes.join('|');
+    
+    // Escape special regex characters in the correct answer markers
+    const correctAnswerMarkersPattern = parsingConfig.correctAnswerMarkers.map(marker => 
+      marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    ).join('|');
+    
+    const explanationPrefixPattern = parsingConfig.explanationPrefixes.join('|');
+    
+    // Prepare patterns
+    const questionRegex = new RegExp(`(^|\\n)(${questionPrefixPattern})\\s*(.+)`, 'gm');
+    const optionRegex = new RegExp(`^(${optionPrefixPattern})\\s*(.+)`, 'i');
+    const correctOptionRegex = new RegExp(`(${correctAnswerMarkersPattern})`, 'i');
+    const explanationRegex = new RegExp(`^(${explanationPrefixPattern})\\s*(.+)`, 'i');
+    
+    // Step 1: Extract question blocks
+    // Split the text by question patterns
+    let questions: ParsedQuestion[] = [];
+    
+    // First, split the text into question blocks
+    // Add a newline before each question marker if one doesn't already exist
+    let preparedText = text;
+    for (const prefix of parsingConfig.questionPrefixes) {
+      // Don't add newline before the very first question
+      const escapedPrefix = prefix.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      preparedText = preparedText.replace(
+        new RegExp(`([^\\n])(${escapedPrefix})`, 'g'), 
+        '$1\n$2'
+      );
+    }
+    
+    // Find all question blocks using regex
+    const questionMatches = Array.from(preparedText.matchAll(questionRegex));
+    
+    if (questionMatches.length === 0) {
+      // If no question patterns found, treat the entire text as one question
+      const singleQuestion = parseQuestionBlock(preparedText);
+      if (singleQuestion) {
+        questions.push(singleQuestion);
+      }
+    } else {
+      // Process each matched question block
+      for (let i = 0; i < questionMatches.length; i++) {
+        const match = questionMatches[i];
+        const questionPrefix = match[2];
+        const questionStart = match[0].trimStart();
+        const startIndex = match.index + match[1].length;
         
-        if (questionMatch) {
-          originalNumber = questionMatch[0];
-          questionText = firstLine.replace(/^(\d+[\.\):]|Q:|Question:)/, '').trim();
-          currentSection = 'options';
-        } else if (blockIndex > 0) {
-          // If we couldn't extract a number but this isn't the first block, 
-          // something might be wrong with the regex. Use blockIndex+1 as fallback.
-          originalNumber = `${blockIndex+1}.`;
-          questionText = firstLine;
-          currentSection = 'options';
+        // Find the end of this question (start of next question or end of text)
+        let endIndex = preparedText.length;
+        if (i < questionMatches.length - 1) {
+          endIndex = questionMatches[i + 1].index;
         }
-
-        // Process remaining lines
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i];
+        
+        // Extract the full question block (includes question text, options, explanation)
+        const fullQuestionBlock = preparedText.substring(startIndex, endIndex);
+        
+        // Parse the question block
+        const parsedQuestion = parseQuestionBlock(fullQuestionBlock);
+        
+        if (parsedQuestion) {
+          // Set the original question number/identifier
+          parsedQuestion.originalNumber = questionPrefix;
+          questions.push(parsedQuestion);
+        }
+      }
+    }
+    
+    return questions;
+    
+    // Helper function to parse a single question block
+    function parseQuestionBlock(block: string): ParsedQuestion | null {
+      const lines = block.split('\n').map(line => line.trim()).filter(line => line);
+      if (lines.length === 0) return null;
+      
+      // The first line contains the question and potentially the question marker
+      let firstLine = lines[0];
+      let questionText = firstLine;
+      
+      // Extract the question text
+      const questionMatch = firstLine.match(new RegExp(`^(${questionPrefixPattern})\\s*(.+)`, 'i'));
+      if (questionMatch) {
+        questionText = questionMatch[2].trim();
+      }
+      
+      const parsedQuestion: ParsedQuestion = {
+        text: questionText,
+        options: [],
+        originalNumber: ''
+      };
+      
+      // Process the remaining lines for options and explanation
+      let currentSection: 'question' | 'options' | 'explanation' = 'options';
+      let explanationText = '';
+      let foundCorrectOption = false;
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check if this is an explanation line
+        if (explanationRegex.test(line)) {
+          currentSection = 'explanation';
+          explanationText = line.replace(explanationRegex, '$2').trim();
+          continue;
+        }
+        
+        // If we're already processing explanation, append to it
+        if (currentSection === 'explanation') {
+          explanationText += ' ' + line;
+          continue;
+        }
+        
+        // Check if this is an option
+        const optionMatch = line.match(optionRegex);
+        if (optionMatch) {
+          // Extract option text and check if it's marked as correct
+          let optionText = optionMatch[2].trim();
+          const isCorrect = correctOptionRegex.test(optionText) && !foundCorrectOption;
           
-          // Check if this is an option line
-          if (line.match(/^[A-Da-d][\)\.:]|^\([A-Da-d]\)/)) {
-            currentSection = 'options';
-            // Match options like "A)", "B.", "A:", "(A)", "a)", etc.
-            const optionText = line.replace(/^[A-Da-d][\)\.:]\s*|^\([A-Da-d]\)\s*/, '').trim();
-            const isCorrect = line.includes('(correct)') || line.includes('✓');
-            
-            if (isCorrect) {
-              hasCorrectAnswer = true;
-            }
-            
-            options.push({
-              id: String(options.length + 1),
-              text: optionText.replace(/\s*\(correct\)|\s*✓/, ''),
-              isCorrect
-            });
-          } else if (line.startsWith('Explanation:') || line.startsWith('Exp:')) {
-            currentSection = 'explanation';
-            explanation = line.replace(/^(Explanation:|Exp:)/, '').trim();
-          } else if (currentSection === 'explanation') {
-            explanation += ' ' + line;
-          } else if (currentSection === 'options' && line.match(/^\(([a-d])\)|^([a-d])\)/i)) {
-            // Special handling for options in format (a) or a) without text - this indicates a multilingual option
-            const optionId = line.match(/\(([a-d])\)|([a-d])\)/i)?.[1] || line.match(/\(([a-d])\)|([a-d])\)/i)?.[2] || '';
-            const isCorrect = line.includes('(correct)') || line.includes('✓');
-            
-            if (isCorrect) {
-              hasCorrectAnswer = true;
-            }
-            
-            options.push({
-              id: String(options.length + 1),
-              text: line.replace(/^\([a-d]\)\s*|^[a-d]\)\s*/i, '').replace(/\s*\(correct\)|\s*✓/, ''),
-              isCorrect
-            });
-          } else if (currentSection === 'options') {
-            // If we're in options section but this line doesn't match an option pattern,
-            // it might be the continuation of the question text or the continuation of the last option
-            if (options.length > 0) {
-              // Append to the last option
-              options[options.length - 1].text += ' ' + line;
+          // If this option is correct, mark that we've found our correct option
+          if (isCorrect) {
+            foundCorrectOption = true;
+          }
+          
+          // Remove the correct answer marker from the option text
+          if (correctOptionRegex.test(optionText)) {
+            optionText = optionText.replace(correctOptionRegex, '').trim();
+          }
+          
+          parsedQuestion.options.push({
+            id: `option-${parsedQuestion.options.length}`,
+            text: optionText,
+            isCorrect: isCorrect
+          });
+        } else {
+          // If not an option but not clearly an explanation, 
+          // it could be a continuation of the question or unlabeled option
+          if (parsedQuestion.options.length === 0) {
+            // If no options yet, assume it's part of the question
+            parsedQuestion.text += ' ' + line;
+          } else {
+            // Otherwise check if it could be an explanation
+            if (line.toLowerCase().includes('explanation') || line.toLowerCase().includes('exp:')) {
+              currentSection = 'explanation';
+              explanationText = line.replace(/^(explanation|exp):/i, '').trim();
             } else {
-              // Append to question text
-              questionText += ' ' + line;
+              // Could be a continuation of the last option
+              const lastOption = parsedQuestion.options[parsedQuestion.options.length - 1];
+              lastOption.text += ' ' + line;
+              
+              // Check if this additional text makes it a correct option
+              if (correctOptionRegex.test(line) && !foundCorrectOption) {
+                foundCorrectOption = true;
+                lastOption.isCorrect = true;
+                lastOption.text = lastOption.text.replace(correctOptionRegex, '').trim();
+              } else if (correctOptionRegex.test(line)) {
+                // If we already have a correct option, just remove the marker
+                lastOption.text = lastOption.text.replace(correctOptionRegex, '').trim();
+              }
             }
           }
         }
       }
-
-      // If no correct answer was marked, default the first option as correct
-      // This will be adjustable in the preview
-      if (options.length > 0 && !hasCorrectAnswer) {
-        options[0].isCorrect = true;
+      
+      // Add the explanation if one was found
+      if (explanationText) {
+        parsedQuestion.explanation = explanationText;
       }
-
-      return {
-        text: questionText,
-        options,
-        explanation: explanation || undefined,
-        originalNumber
-      };
-    });
+      
+      // If there are no options with correct answer, mark the first one as correct by default
+      if (parsedQuestion.options.length > 0 && !foundCorrectOption) {
+        parsedQuestion.options[0].isCorrect = true;
+      }
+      
+      return parsedQuestion;
+    }
   };
 
   const handleParsePreview = () => {
-    const parsed = parseQuestions(bulkText);
-    setParsedQuestions(parsed);
-    setPreviewMode(true);
+    if (!bulkText.trim()) {
+      setError('Please enter some text to parse.');
+      return;
+    }
+    
+    try {
+      setError('');
+      const questions = parseQuestions(bulkText);
+      
+      if (questions.length === 0) {
+        setError('No questions could be parsed from the text. Please check your formatting.');
+        return;
+      }
+      
+      // Make sure each question has at least 2 options
+      questions.forEach(question => {
+        if (question.options.length < 1) {
+          // Add default options if none were found
+          question.options.push({
+            id: `option-0`,
+            text: 'Add your option here',
+            isCorrect: true
+          });
+        }
+      });
+      
+      setParsedQuestions(questions);
+      setPreviewMode(true);
+    } catch (error) {
+      console.error('Error parsing questions:', error);
+      setError('Error parsing questions. Please check your formatting.');
+    }
   };
 
   const setCorrectOption = (questionIndex: number, optionIndex: number) => {
     const updatedQuestions = [...parsedQuestions];
-    // Reset all options for this question to false first
-    updatedQuestions[questionIndex].options.forEach(opt => {
-      opt.isCorrect = false;
-    });
-    // Set the selected option as correct
-    updatedQuestions[questionIndex].options[optionIndex].isCorrect = true;
-    setParsedQuestions(updatedQuestions);
+    
+    // Get the current question
+    const currentQuestion = updatedQuestions[questionIndex];
+    
+    if (currentQuestion) {
+      // Mark all options as not correct
+      currentQuestion.options.forEach(opt => (opt.isCorrect = false));
+      
+      // Mark the selected option as correct
+      currentQuestion.options[optionIndex].isCorrect = true;
+      
+      // Update the questions
+      setParsedQuestions(updatedQuestions);
+    }
   };
 
   const handleSubmit = async () => {
@@ -167,15 +332,34 @@ console.log(text,questionBlocks);
       return;
     }
 
-    // Validate each question has at least one option and exactly one correct answer
+    if (parsedQuestions.length === 0) {
+      setError('No questions to submit');
+      return;
+    }
+    
+    // Validate each question has exactly one correct answer
     for (let i = 0; i < parsedQuestions.length; i++) {
-      if (parsedQuestions[i].options.length === 0) {
-        setError(`Question ${i + 1} must have at least one option`);
+      const question = parsedQuestions[i];
+      const correctOptions = question.options.filter(opt => opt.isCorrect);
+      
+      if (correctOptions.length === 0) {
+        setError(`Question ${i + 1} has no correct answer selected. Please mark one option as correct.`);
         return;
       }
-      const correctOptions = parsedQuestions[i].options.filter(opt => opt.isCorrect);
-      if (correctOptions.length !== 1) {
-        setError(`Question ${i + 1} must have exactly one correct answer`);
+      
+      if (correctOptions.length > 1) {
+        // Auto-fix: keep only the first correct option
+        const updatedQuestions = [...parsedQuestions];
+        const firstCorrectIndex = question.options.findIndex(opt => opt.isCorrect);
+        
+        // Set all options to not correct
+        updatedQuestions[i].options.forEach(opt => opt.isCorrect = false);
+        
+        // Set only the first one as correct
+        updatedQuestions[i].options[firstCorrectIndex].isCorrect = true;
+        
+        setParsedQuestions(updatedQuestions);
+        setError(`Fixed question ${i + 1} to have exactly one correct answer.`);
         return;
       }
     }
@@ -185,26 +369,29 @@ console.log(text,questionBlocks);
     setSuccess(false);
 
     try {
-      for (const question of parsedQuestions) {
-        await questionService.createQuestion({
-          topic: selectedTopic,
-          text: question.text,
-          options: JSON.stringify(question.options),
-          difficulty,
-          explanation: question.explanation || ''
-        });
-      }
+      // Prepare questions for submission
+      const questions = parsedQuestions.map(q => ({
+        text: q.text,
+        options: q.options,
+        explanation: q.explanation || '',
+        topicId: selectedTopic,
+        difficulty: difficulty
+      }));
 
-      setSuccess(true);
+      // Submit questions
+      await questionService.createBulkQuestions(questions);
+      
+      // Reset form
       setBulkText('');
       setParsedQuestions([]);
       setPreviewMode(false);
-
-      setTimeout(() => {
-        setSuccess(false);
-      }, 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to create questions');
+      setSuccess(true);
+      
+      // Scroll to top to show success message
+      window.scrollTo(0, 0);
+    } catch (error) {
+      console.error('Error creating questions:', error);
+      setError('Failed to create questions. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -292,6 +479,219 @@ console.log(text,questionBlocks);
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
             </select>
+          </div>
+
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-md font-medium text-gray-900">Parsing Configuration</h3>
+              <button
+                type="button"
+                onClick={() => setShowParsingOptions(!showParsingOptions)}
+                className="text-sky-600 hover:text-sky-800 text-sm flex items-center"
+              >
+                {showParsingOptions ? 'Hide Options' : 'Show Options'}
+                <svg
+                  className={`ml-1 h-5 w-5 transform ${showParsingOptions ? 'rotate-180' : ''}`}
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {showParsingOptions && (
+              <div className="space-y-4">
+                {/* Question Prefixes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Question Start Patterns
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {parsingConfig.questionPrefixes.map((prefix, index) => (
+                      <div
+                        key={`q-prefix-${index}`}
+                        className="bg-sky-100 text-sky-800 px-2 py-1 rounded-md text-xs flex items-center"
+                      >
+                        <span className="mr-1">{prefix}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeParsingOption('questionPrefixes', index)}
+                          className="text-sky-600 hover:text-sky-800"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      value={customQuestionPrefix}
+                      onChange={(e) => setCustomQuestionPrefix(e.target.value)}
+                      placeholder="Add custom pattern"
+                      className="block w-full rounded-l-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addCustomParsingOption('questionPrefixes')}
+                      disabled={!customQuestionPrefix}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-r-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Examples: "Q:", "Question:", "\d+\." (for "1."), "\d+\)" (for "1)")
+                  </p>
+                </div>
+
+                {/* Option Prefixes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Answer Option Patterns
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {parsingConfig.optionPrefixes.map((prefix, index) => (
+                      <div
+                        key={`o-prefix-${index}`}
+                        className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded-md text-xs flex items-center"
+                      >
+                        <span className="mr-1">{prefix}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeParsingOption('optionPrefixes', index)}
+                          className="text-indigo-600 hover:text-indigo-800"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      value={customOptionPrefix}
+                      onChange={(e) => setCustomOptionPrefix(e.target.value)}
+                      placeholder="Add custom pattern"
+                      className="block w-full rounded-l-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addCustomParsingOption('optionPrefixes')}
+                      disabled={!customOptionPrefix}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-r-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Examples: "[A-Za-z]\)" (for "A)"), "\([A-Za-z]\)" (for "(A)")
+                  </p>
+                </div>
+
+                {/* Correct Answer Markers */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Correct Answer Markers
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {parsingConfig.correctAnswerMarkers.map((marker, index) => (
+                      <div
+                        key={`c-marker-${index}`}
+                        className="bg-green-100 text-green-800 px-2 py-1 rounded-md text-xs flex items-center"
+                      >
+                        <span className="mr-1">{marker}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeParsingOption('correctAnswerMarkers', index)}
+                          className="text-green-600 hover:text-green-800"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      value={customCorrectMarker}
+                      onChange={(e) => setCustomCorrectMarker(e.target.value)}
+                      placeholder="Add custom marker"
+                      className="block w-full rounded-l-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addCustomParsingOption('correctAnswerMarkers')}
+                      disabled={!customCorrectMarker}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-r-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Examples: "(correct)", "✓", "(right)", "(true)"
+                  </p>
+                </div>
+
+                {/* Explanation Prefixes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Explanation Patterns
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {parsingConfig.explanationPrefixes.map((prefix, index) => (
+                      <div
+                        key={`e-prefix-${index}`}
+                        className="bg-amber-100 text-amber-800 px-2 py-1 rounded-md text-xs flex items-center"
+                      >
+                        <span className="mr-1">{prefix}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeParsingOption('explanationPrefixes', index)}
+                          className="text-amber-600 hover:text-amber-800"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      value={customExplanationPrefix}
+                      onChange={(e) => setCustomExplanationPrefix(e.target.value)}
+                      placeholder="Add custom pattern"
+                      className="block w-full rounded-l-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addCustomParsingOption('explanationPrefixes')}
+                      disabled={!customExplanationPrefix}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-r-md text-white bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Examples: "Explanation:", "Exp:"
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

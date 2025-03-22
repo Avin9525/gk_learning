@@ -111,6 +111,9 @@ export default function Navbar() {
                       <Link href="/admin/questions/bulk-add" className="block px-4 py-2 text-sm text-gray-700 hover:bg-sky-50" onClick={closeMenus}>
                         Bulk Add Questions
                       </Link>
+                      <Link href="/admin/questions/manage" className="block px-4 py-2 text-sm text-gray-700 hover:bg-sky-50" onClick={closeMenus}>
+                        Manage Questions
+                      </Link>
                       <Link href="/topics" className="block px-4 py-2 text-sm text-gray-700 hover:bg-sky-50" onClick={closeMenus}>
                         Browse Topics
                       </Link>
@@ -215,6 +218,9 @@ export default function Navbar() {
           </Link>
           <Link href="/admin/questions/bulk-add" className="text-white hover:bg-sky-700 block px-3 py-2 rounded-md text-base font-medium" onClick={closeMenus}>
             Bulk Add Questions
+          </Link>
+          <Link href="/admin/questions/manage" className="text-white hover:bg-sky-700 block px-3 py-2 rounded-md text-base font-medium" onClick={closeMenus}>
+            Manage Questions
           </Link>
           <Link href="/topics" className="text-white hover:bg-sky-700 block px-3 py-2 rounded-md text-base font-medium" onClick={closeMenus}>
             Browse Topics

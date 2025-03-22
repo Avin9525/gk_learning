@@ -164,5 +164,43 @@ export const questionService = {
     }
     
     return questionCopy;
+  },
+
+  // Create multiple questions at once
+  async createBulkQuestions(questions: Array<{
+    text: string;
+    options: Option[];
+    explanation: string;
+    topicId: string;
+    difficulty: 'easy' | 'medium' | 'hard';
+  }>): Promise<boolean> {
+    try {
+      // Process questions in batches to avoid overwhelming the API
+      const batchSize = 10;
+      const totalQuestions = questions.length;
+      
+      for (let i = 0; i < totalQuestions; i += batchSize) {
+        const batch = questions.slice(i, Math.min(i + batchSize, totalQuestions));
+        
+        // Create promises for each question in the batch
+        const promises = batch.map(q => {
+          return this.createQuestion({
+            text: q.text,
+            options: JSON.stringify(q.options),
+            explanation: q.explanation || '',
+            topic: q.topicId,
+            difficulty: q.difficulty
+          });
+        });
+        
+        // Wait for all promises in this batch to resolve
+        await Promise.all(promises);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error creating bulk questions:', error);
+      throw error; // Re-throw to handle in the calling function
+    }
   }
 }; 
