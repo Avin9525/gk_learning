@@ -124,19 +124,22 @@ export default function QuestionCard({ question, userId, onComplete }: QuestionC
   };
   
   const handleSelectOption = (optionId: string) => {
-    if (!isSubmitted) {
+    if (!isSubmitted && !loading) {
       setSelectedOption(optionId);
+      // Auto-submit when an option is selected
+      submitAnswer(optionId);
     }
   };
   
-  const handleSubmit = async () => {
-    if (!selectedOption || isSubmitted || loading) return;
+  // Extracted submit logic to a separate function to be called directly
+  const submitAnswer = async (optionId: string) => {
+    if (isSubmitted || loading) return;
     
     setLoading(true);
     
     try {
       // First check if it's an original option
-      let option = originalOptions.find(opt => opt.id === selectedOption);
+      let option = originalOptions.find(opt => opt.id === optionId);
       
       // Determine if correct based on whether it's a real option and if it's marked correct
       const correct = option?.isCorrect || false;
@@ -163,7 +166,17 @@ export default function QuestionCard({ question, userId, onComplete }: QuestionC
     }
   };
   
+  // Keeping the handleSubmit function for backward compatibility
+  const handleSubmit = async () => {
+    if (!selectedOption) return;
+    await submitAnswer(selectedOption);
+  };
+  
   const getOptionClassName = (option: Option) => {
+    if (loading && selectedOption === option.id) {
+      return 'bg-indigo-100 border-indigo-500 dark:bg-indigo-900 dark:border-indigo-400 opacity-70';
+    }
+    
     if (!isSubmitted) {
       return selectedOption === option.id
         ? 'bg-indigo-100 border-indigo-500 dark:bg-indigo-900 dark:border-indigo-400'
@@ -224,10 +237,17 @@ export default function QuestionCard({ question, userId, onComplete }: QuestionC
             <button
               key={option.id}
               onClick={() => handleSelectOption(option.id)}
-              disabled={isSubmitted}
+              disabled={isSubmitted || loading}
               className={`w-full text-left p-4 border rounded-md transition-colors ${getOptionClassName(option)}`}
             >
-              {option.text}
+              {loading && selectedOption === option.id ? (
+                <div className="flex items-center">
+                  <span className="mr-2">{option.text}</span>
+                  <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin ml-auto"></div>
+                </div>
+              ) : (
+                option.text
+              )}
             </button>
           ))
         ) : (
@@ -240,15 +260,13 @@ export default function QuestionCard({ question, userId, onComplete }: QuestionC
       {renderFeedback()}
       
       <div className="mt-6 flex justify-end">
-        {!isSubmitted ? (
-          <button
-            onClick={handleSubmit}
-            disabled={!selectedOption || loading || enrichedOptions.length === 0}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-          >
-            {loading ? 'Submitting...' : 'Submit Answer'}
-          </button>
-        ) : (
+        {!isSubmitted && enrichedOptions.length === 0 && (
+          <div className="text-gray-500">
+            Loading options...
+          </div>
+        )}
+        {/* Show Next Question button after submission */}
+        {isSubmitted && (
           <button
             onClick={() => onComplete?.(isCorrect)}
             className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
