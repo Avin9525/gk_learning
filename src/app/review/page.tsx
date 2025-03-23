@@ -38,18 +38,30 @@ export default function ReviewPage() {
           
           // Get questions due for review
           const questionIds = await progressService.getQuestionsForReview(user.$id);
+          console.log(`Got ${questionIds.length} question IDs for review`);
           
           if (questionIds.length > 0) {
-            // Fetch the actual questions from their IDs
+            // Fetch questions in batches instead of one by one for better performance
             const reviewQuestions: Question[] = [];
+            const batchSize = 20; // Process 20 questions at a time
             
-            for (const id of questionIds) {
-              const question = await questionService.getQuestionById(id);
-              if (question) {
-                reviewQuestions.push(question);
+            for (let i = 0; i < questionIds.length; i += batchSize) {
+              const batch = questionIds.slice(i, i + batchSize);
+              console.log(`Processing batch ${i/batchSize + 1} of question IDs (${batch.length} questions)`);
+              
+              // Fetch each question in the batch
+              const batchPromises = batch.map(id => questionService.getQuestionById(id));
+              const batchResults = await Promise.all(batchPromises);
+              
+              // Add valid questions to the list
+              for (const question of batchResults) {
+                if (question) {
+                  reviewQuestions.push(question);
+                }
               }
             }
             
+            console.log(`Successfully loaded ${reviewQuestions.length} review questions`);
             setQuestions(reviewQuestions);
           }
         }

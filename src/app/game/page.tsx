@@ -134,7 +134,7 @@ export default function MemoryGamePage() {
     setError('');
     
     try {
-      // Get questions for the selected topic
+      // Get questions for the selected topic with pagination
       const questions = await questionService.getQuestionsByTopic(selectedTopic);
       
       // Filter questions by difficulty if needed
@@ -174,9 +174,16 @@ export default function MemoryGamePage() {
         // Find the correct answer
         const options = typeof question.options === 'string' 
           ? JSON.parse(question.options) 
-          : question.options;
+          : question.parsedOptions || question.options;
         
-        const correctAnswer = options.find((opt: OptionType) => opt.isCorrect);
+        // Handle case where no correct option is found
+        let correctAnswer = options.find((opt: OptionType) => opt.isCorrect);
+        
+        // If no correct answer found but we have options, use the first one
+        if (!correctAnswer && options.length > 0) {
+          correctAnswer = options[0];
+          console.warn(`No correct answer found for question ${question.$id}, using first option`);
+        }
         
         // Add answer card
         gamePairs.push({

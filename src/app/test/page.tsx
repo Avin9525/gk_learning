@@ -53,10 +53,10 @@ export default function TestPage() {
 
     setStartingTest(true);
     try {
-      // Fetch questions for the selected topic
+      // Fetch questions for the selected topic (will handle pagination internally)
       const allQuestions = await questionService.getQuestionsByTopic(selectedTopic);
       
-      // Also fetch all questions to use for option enrichment
+      // Also fetch all questions to use for option enrichment (will handle pagination internally)
       const allAvailableQuestions = await questionService.getAllQuestions();
       
       // Randomly select the requested number of questions
@@ -241,10 +241,26 @@ export default function TestPage() {
     setCurrentQuestionIndex(0);
   };
 
-  // Parse options safely
+  // Parse options safely and normalize IDs
   const parseOptions = (options: any) => {
     try {
-      return typeof options === 'string' ? JSON.parse(options) : options;
+      let parsedOptions = typeof options === 'string' ? JSON.parse(options) : options;
+      
+      // Normalize option IDs to ensure they're in the correct format (numeric strings)
+      if (Array.isArray(parsedOptions)) {
+        parsedOptions = parsedOptions.map((opt, index) => {
+          // If the ID is in the format "option-X", convert it to a numeric ID
+          if (opt.id && typeof opt.id === 'string' && opt.id.startsWith('option-')) {
+            return {
+              ...opt,
+              id: String(index + 1)
+            };
+          }
+          return opt;
+        });
+      }
+      
+      return parsedOptions;
     } catch (e) {
       console.error('Error parsing options:', e);
       return [];

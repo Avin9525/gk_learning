@@ -5,16 +5,53 @@ export const questionService = {
   // Get all questions
   async getAllQuestions(): Promise<Question[]> {
     try {
-      const response = await databases.listDocuments(
-        appwriteConfig.databaseId,
-        appwriteConfig.questionCollectionId
-      );
+      console.log('Fetching all questions from Appwrite...');
+      console.log('Database ID:', appwriteConfig.databaseId);
+      console.log('Question Collection ID:', appwriteConfig.questionCollectionId);
+      
+      // Fetch all questions with pagination
+      let allDocuments: any[] = [];
+      let offset = 0;
+      const limit = 100; // Maximum limit per page in Appwrite
+      let hasMore = true;
+      
+      while (hasMore) {
+        const response = await databases.listDocuments(
+          appwriteConfig.databaseId,
+          appwriteConfig.questionCollectionId,
+          [Query.limit(limit), Query.offset(offset)]
+        );
+        
+        allDocuments = [...allDocuments, ...response.documents];
+        
+        // Check if there are more documents to fetch
+        if (response.documents.length < limit) {
+          hasMore = false;
+        } else {
+          offset += limit;
+        }
+      }
+      
+      console.log(`Retrieved ${allDocuments.length} questions total`);
+      if (allDocuments.length > 0) {
+        console.log('First question:', {
+          id: allDocuments[0].$id,
+          text: allDocuments[0].text?.substring(0, 30) + '...',
+          topic: allDocuments[0].topic
+        });
+      }
       
       // Parse options strings to objects
-      const questions = response.documents as unknown as Question[];
+      const questions = allDocuments as unknown as Question[];
       return questions.map(question => this.parseQuestionOptions(question));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching questions:', error);
+      if (error.message) {
+        console.error('Error message:', error.message);
+      }
+      if (error.response) {
+        console.error('Error response:', error.response);
+      }
       return [];
     }
   },
@@ -22,17 +59,46 @@ export const questionService = {
   // Get questions by topic
   async getQuestionsByTopic(topic: string): Promise<Question[]> {
     try {
-      const response = await databases.listDocuments(
-        appwriteConfig.databaseId,
-        appwriteConfig.questionCollectionId,
-        [Query.equal('topic', topic)]
-      );
+      console.log(`Fetching questions for topic: ${topic}`);
+      console.log('Database ID:', appwriteConfig.databaseId);
+      console.log('Question Collection ID:', appwriteConfig.questionCollectionId);
+      
+      // Fetch topic questions with pagination
+      let allDocuments: any[] = [];
+      let offset = 0;
+      const limit = 100; // Maximum limit per page in Appwrite
+      let hasMore = true;
+      
+      while (hasMore) {
+        const response = await databases.listDocuments(
+          appwriteConfig.databaseId,
+          appwriteConfig.questionCollectionId,
+          [Query.equal('topic', topic), Query.limit(limit), Query.offset(offset)]
+        );
+        
+        allDocuments = [...allDocuments, ...response.documents];
+        
+        // Check if there are more documents to fetch
+        if (response.documents.length < limit) {
+          hasMore = false;
+        } else {
+          offset += limit;
+        }
+      }
+      
+      console.log(`Retrieved ${allDocuments.length} questions for topic ${topic}`);
       
       // Parse options strings to objects
-      const questions = response.documents as unknown as Question[];
+      const questions = allDocuments as unknown as Question[];
       return questions.map(question => this.parseQuestionOptions(question));
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error fetching questions for topic ${topic}:`, error);
+      if (error.message) {
+        console.error('Error message:', error.message);
+      }
+      if (error.response) {
+        console.error('Error response:', error.response);
+      }
       return [];
     }
   },
@@ -58,8 +124,17 @@ export const questionService = {
   // Create a new question
   async createQuestion(question: Omit<Question, '$id'>): Promise<Question | null> {
     try {
+      // Log the question being created
+      console.log('Creating question with topic:', question.topic);
+      
       // If options is an array, stringify it before sending to Appwrite
       const questionToSave = this.prepareQuestionForSave(question);
+      
+      // Ensure the topic field is correctly set
+      if (!questionToSave.topic) {
+        console.error('Topic is missing when creating question');
+        throw new Error('Topic is required when creating a question');
+      }
       
       const response = await databases.createDocument(
         appwriteConfig.databaseId,
@@ -68,11 +143,17 @@ export const questionService = {
         questionToSave
       );
       
+      // Log the created question response
+      console.log('Question created successfully with ID:', response.$id);
+      
       // Parse the response for client use
       const createdQuestion = response as unknown as Question;
       return this.parseQuestionOptions(createdQuestion);
     } catch (error) {
       console.error('Error creating question:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+      }
       return null;
     }
   },
@@ -118,7 +199,21 @@ export const questionService = {
   parseQuestionOptions(question: Question): Question {
     try {
       if (question.options && typeof question.options === 'string') {
-        question.parsedOptions = JSON.parse(question.options) as Option[];
+        let parsedOptions = JSON.parse(question.options) as Option[];
+        
+        // Normalize option IDs to ensure they're in the correct format (numeric strings)
+        parsedOptions = parsedOptions.map((opt, index) => {
+          // If the ID is in the format "option-X", convert it to a numeric ID
+          if (opt.id && opt.id.startsWith('option-')) {
+            return {
+              ...opt,
+              id: String(index + 1)
+            };
+          }
+          return opt;
+        });
+        
+        question.parsedOptions = parsedOptions;
       }
       return question;
     } catch (error) {
@@ -175,18 +270,36 @@ export const questionService = {
     difficulty: 'easy' | 'medium' | 'hard';
   }>): Promise<boolean> {
     try {
+      console.log(`Creating ${questions.length} bulk questions`);
+      console.log('First question sample:', {
+        text: questions[0]?.text.substring(0, 30) + '...',
+        topicId: questions[0]?.topicId,
+        difficulty: questions[0]?.difficulty,
+        optionsCount: questions[0]?.options.length
+      });
+      
       // Process questions in batches to avoid overwhelming the API
       const batchSize = 10;
       const totalQuestions = questions.length;
       
       for (let i = 0; i < totalQuestions; i += batchSize) {
         const batch = questions.slice(i, Math.min(i + batchSize, totalQuestions));
+        console.log(`Processing batch ${i/batchSize + 1}, size: ${batch.length}`);
         
         // Create promises for each question in the batch
         const promises = batch.map(q => {
+          // Make sure all options have proper IDs (numeric strings, not "option-X")
+          const cleanedOptions = q.options.map((opt, index) => ({
+            ...opt,
+            id: String(index + 1)
+          }));
+          
+          // Log question being created
+          console.log(`Creating question: "${q.text.substring(0, 30)}..." with topic: "${q.topicId}"`);
+          
           return this.createQuestion({
             text: q.text,
-            options: JSON.stringify(q.options),
+            options: JSON.stringify(cleanedOptions),
             explanation: q.explanation || '',
             topic: q.topicId,
             difficulty: q.difficulty
@@ -194,9 +307,11 @@ export const questionService = {
         });
         
         // Wait for all promises in this batch to resolve
-        await Promise.all(promises);
+        const results = await Promise.all(promises);
+        console.log(`Batch ${i/batchSize + 1} completed, created ${results.filter(Boolean).length} questions`);
       }
       
+      console.log(`Bulk question creation completed successfully`);
       return true;
     } catch (error) {
       console.error('Error creating bulk questions:', error);

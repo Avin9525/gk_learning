@@ -225,7 +225,7 @@ export default function BulkAddQuestionsPage() {
           }
           
           parsedQuestion.options.push({
-            id: `option-${parsedQuestion.options.length}`,
+            id: `${parsedQuestion.options.length + 1}`,
             text: optionText,
             isCorrect: isCorrect
           });
@@ -293,7 +293,7 @@ export default function BulkAddQuestionsPage() {
         if (question.options.length < 1) {
           // Add default options if none were found
           question.options.push({
-            id: `option-0`,
+            id: `1`,
             text: 'Add your option here',
             isCorrect: true
           });
@@ -377,6 +377,13 @@ export default function BulkAddQuestionsPage() {
         topicId: selectedTopic,
         difficulty: difficulty
       }));
+
+      console.log(`Submitting ${questions.length} questions with topic: ${selectedTopic}`);
+      console.log('Sample question:', {
+        text: questions[0]?.text.substring(0, 30) + '...',
+        topicId: questions[0]?.topicId,
+        options: questions[0]?.options.length
+      });
 
       // Submit questions
       await questionService.createBulkQuestions(questions);

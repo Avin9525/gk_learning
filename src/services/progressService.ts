@@ -115,19 +115,39 @@ export const progressService = {
   // Get questions due for review based on mastery level
   async getQuestionsForReview(userId: string): Promise<string[]> {
     try {
-      // Get questions that are in 'learning' or 'review' state
-      const response = await databases.listDocuments(
-        appwriteConfig.databaseId,
-        appwriteConfig.userProgressCollectionId,
-        [
-          Query.equal('userId', userId),
-          Query.notEqual('masteryLevel', 'mastered'),
-          Query.notEqual('masteryLevel', 'new')
-        ]
-      );
+      // Get questions that are in 'learning' or 'review' state with pagination
+      let allDocuments: any[] = [];
+      let offset = 0;
+      const limit = 100; // Maximum limit per page in Appwrite
+      let hasMore = true;
+      
+      while (hasMore) {
+        const response = await databases.listDocuments(
+          appwriteConfig.databaseId,
+          appwriteConfig.userProgressCollectionId,
+          [
+            Query.equal('userId', userId),
+            Query.notEqual('masteryLevel', 'mastered'),
+            Query.notEqual('masteryLevel', 'new'),
+            Query.limit(limit),
+            Query.offset(offset)
+          ]
+        );
+        
+        allDocuments = [...allDocuments, ...response.documents];
+        
+        // Check if there are more documents to fetch
+        if (response.documents.length < limit) {
+          hasMore = false;
+        } else {
+          offset += limit;
+        }
+      }
+      
+      console.log(`Retrieved ${allDocuments.length} questions for review`);
       
       // Return the questionIds
-      return (response.documents as unknown as UserProgress[]).map(progress => progress.questionId);
+      return (allDocuments as unknown as UserProgress[]).map(progress => progress.questionId);
     } catch (error) {
       console.error(`Error fetching review questions for user ${userId}:`, error);
       return [];

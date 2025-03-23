@@ -38,15 +38,32 @@ export const topicService = {
       // Get the question count for each topic
       const enrichedTopics = await Promise.all(
         topics.map(async (topic) => {
-          const response = await databases.listDocuments(
-            appwriteConfig.databaseId,
-            appwriteConfig.questionCollectionId,
-            [Query.equal('topic', topic.id)]
-          );
+          // Count questions for this topic with pagination support
+          let totalCount = 0;
+          let offset = 0;
+          const limit = 100; // Maximum limit per page in Appwrite
+          let hasMore = true;
+          
+          while (hasMore) {
+            const response = await databases.listDocuments(
+              appwriteConfig.databaseId,
+              appwriteConfig.questionCollectionId,
+              [Query.equal('topic', topic.id), Query.limit(limit), Query.offset(offset)]
+            );
+            
+            totalCount += response.documents.length;
+            
+            // Check if there are more documents to fetch
+            if (response.documents.length < limit) {
+              hasMore = false;
+            } else {
+              offset += limit;
+            }
+          }
           
           return {
             ...topic,
-            questionCount: response.total
+            questionCount: totalCount
           };
         })
       );
